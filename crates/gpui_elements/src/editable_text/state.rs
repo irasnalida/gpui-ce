@@ -755,11 +755,11 @@ impl EntityInputHandler for EditableTextState {
         &mut self,
         range_utf16: Range<usize>,
         bounds: Bounds<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.storage.utf_range_16to8(&range_utf16);
-        let line_height = window.line_height();
+        let line_height = self.layout_data.line_height;
 
         for line in &self.layout_data.lines {
             // The vertical offset of the text-segment from the start of the virtual box (which could be scrolled).
@@ -813,10 +813,10 @@ impl EntityInputHandler for EditableTextState {
     fn character_index_for_point(
         &mut self,
         point: Point<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
-        let index = self.index_for_pixel_point(point, window.line_height());
+        let index = self.index_for_pixel_point(point, self.layout_data.line_height);
         Some(self.storage.utf_offset_8to16(index))
     }
 }
@@ -900,27 +900,30 @@ impl<'app> EditableTextActionHandler<Context<'app, Self>> for EditableTextState 
         self.nav_linear(NavigationDirection::Forward, TextBoundary::Graphmeme, cx);
     }
 
-    fn nav_up(&mut self, _: &NavUp, window: &mut Window, cx: &mut Context<'app, Self>) {
+    fn nav_up(&mut self, _: &NavUp, _window: &mut Window, cx: &mut Context<'app, Self>) {
         if !self.layout_data.supports_multiline {
             // semantically equivalent to line
             self.nav_linear(NavigationDirection::Back, TextBoundary::Line, cx);
             return;
         }
 
-        if let Some(caret_pos) = self.find_position_in_vertical_direction(-1, window.line_height())
+        if let Some(caret_pos) =
+            self.find_position_in_vertical_direction(-1, self.layout_data.line_height)
         {
             self.move_to(caret_pos, cx);
         }
     }
 
-    fn nav_down(&mut self, _: &NavDown, window: &mut Window, cx: &mut Context<'app, Self>) {
+    fn nav_down(&mut self, _: &NavDown, _window: &mut Window, cx: &mut Context<'app, Self>) {
         if !self.layout_data.supports_multiline {
             // semantically equivalent to line
             self.nav_linear(NavigationDirection::Forward, TextBoundary::Line, cx);
             return;
         }
 
-        if let Some(caret_pos) = self.find_position_in_vertical_direction(1, window.line_height()) {
+        if let Some(caret_pos) =
+            self.find_position_in_vertical_direction(1, self.layout_data.line_height)
+        {
             self.move_to(caret_pos, cx);
         }
     }
@@ -963,27 +966,30 @@ impl<'app> EditableTextActionHandler<Context<'app, Self>> for EditableTextState 
         self.select_linear(NavigationDirection::Forward, TextBoundary::Graphmeme, cx);
     }
 
-    fn select_up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<'app, Self>) {
+    fn select_up(&mut self, _: &SelectUp, _window: &mut Window, cx: &mut Context<'app, Self>) {
         if !self.layout_data.supports_multiline {
             // semantically equivalent to select document
             self.select_linear(NavigationDirection::Back, TextBoundary::Document, cx);
             return;
         }
 
-        if let Some(caret_pos) = self.find_position_in_vertical_direction(-1, window.line_height())
+        if let Some(caret_pos) =
+            self.find_position_in_vertical_direction(-1, self.layout_data.line_height)
         {
             self.select_to(caret_pos, cx);
         }
     }
 
-    fn select_down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<'app, Self>) {
+    fn select_down(&mut self, _: &SelectDown, _window: &mut Window, cx: &mut Context<'app, Self>) {
         if !self.layout_data.supports_multiline {
             // semantically equivalent to select document
             self.select_linear(NavigationDirection::Forward, TextBoundary::Document, cx);
             return;
         }
 
-        if let Some(caret_pos) = self.find_position_in_vertical_direction(1, window.line_height()) {
+        if let Some(caret_pos) =
+            self.find_position_in_vertical_direction(1, self.layout_data.line_height)
+        {
             self.select_to(caret_pos, cx);
         }
     }
@@ -1102,13 +1108,13 @@ impl<'app> EditableTextActionHandler<Context<'app, Self>> for EditableTextState 
         &mut self,
         event: &gpui::MouseDownEvent,
         text_position: Point<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<'app, Self>,
     ) {
         const DOUBLE_CLICK: usize = 2;
         const TRIPLE_CLICK: usize = 3;
 
-        let caret_pos = self.index_for_pixel_point(text_position, window.line_height());
+        let caret_pos = self.index_for_pixel_point(text_position, self.layout_data.line_height);
 
         self.is_selecting = true;
         self.apply_click(event.click_count, text_position);
@@ -1134,11 +1140,12 @@ impl<'app> EditableTextActionHandler<Context<'app, Self>> for EditableTextState 
         &mut self,
         _event: &gpui::MouseMoveEvent,
         text_position: Point<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<'app, Self>,
     ) {
         if self.is_selecting && self.click_count == 1 {
-            let character_pos = self.index_for_pixel_point(text_position, window.line_height());
+            let character_pos =
+                self.index_for_pixel_point(text_position, self.layout_data.line_height);
             self.select_to(character_pos, cx);
         }
     }

@@ -429,6 +429,7 @@ impl Element for EditableTextElement {
 
         let accepts_input = self.accepts_input;
         let hitbox = prepaint.interactivity.hitbox.clone();
+        let line_h = request_layout.state.read(cx).layout_data.line_height;
         let perform_paint = |style: &Style, window: &mut Window, cx: &mut App| {
             if style.display == Display::None {
                 return;
@@ -440,7 +441,6 @@ impl Element for EditableTextElement {
             }
 
             // Actually draw the elements we constructed during prepaint
-            let line_h = window.line_height();
             for PrepaintLine { line, point, align } in prepaint.elements.lines.drain(..) {
                 let _ = line.paint(point, line_h, align, Some(bounds), window, cx);
             }
@@ -743,7 +743,7 @@ impl PrepaintElements {
 
         let mut elements = PrepaintElements::default();
 
-        let line_height = window.line_height();
+        let line_height = state.layout_data.line_height;
         let is_range_contained_by_range =
             |text_range: &Range<usize>, containing_range: &Range<usize>| {
                 if text_range.is_empty() {
