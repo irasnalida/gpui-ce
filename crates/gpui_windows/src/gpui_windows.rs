@@ -12,6 +12,7 @@ mod display;
 mod events;
 mod keyboard;
 mod platform;
+mod shared_device;
 mod system_notifications;
 mod system_settings;
 mod util;
@@ -38,5 +39,6 @@ pub(crate) use window::*;
 pub(crate) use wrapper::*;
 
 pub use platform::WindowsPlatform;
+pub use shared_device::{shared_d3d11_device, shared_d3d11_device_generation};
 
 pub(crate) use windows::Win32::Foundation::HWND;

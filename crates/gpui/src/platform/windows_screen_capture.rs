@@ -24,6 +24,26 @@ impl WindowsScreenCaptureFrame {
         }
     }
 
+    /// Wraps an arbitrary D3D11 texture as a surface frame, for example a decoded video frame.
+    ///
+    /// The texture must be a `DXGI_FORMAT_B8G8R8A8_UNORM` (or RGBA) 2D texture with the
+    /// `D3D11_BIND_SHADER_RESOURCE` flag, created on the same `ID3D11Device` that the window's
+    /// renderer uses. Passing a texture that another `Arc` still references lets the producer
+    /// check `Arc::strong_count` to learn when the renderer has released the frame.
+    ///
+    /// `presentation_time` is stored as the frame's display time (100-nanosecond units).
+    pub fn from_d3d11_texture(
+        texture: Arc<ID3D11Texture2D>,
+        size: Size<DevicePixels>,
+        presentation_time: u64,
+    ) -> Self {
+        Self {
+            texture,
+            size,
+            display_time: presentation_time,
+        }
+    }
+
     /// Returns the native texture containing this frame.
     pub fn texture(&self) -> &ID3D11Texture2D {
         &self.texture

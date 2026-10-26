@@ -114,6 +114,7 @@ impl WindowsPlatform {
         }
         let (directx_devices, text_system, direct_write_text_system) = if !headless {
             let devices = DirectXDevices::new().context("Creating DirectX devices")?;
+            crate::shared_device::publish_device(&devices.device);
             let dw_text_system = Arc::new(
                 DirectWriteTextSystem::new(&devices)
                     .context("Error creating DirectWriteTextSystem")?,
@@ -1450,6 +1451,7 @@ fn handle_gpu_device_lost(
         DirectXDevices::new().context("Failed to recreate new DirectX devices after device lost")
     })?;
     log::info!("DirectX devices successfully recreated.");
+    crate::shared_device::publish_device(&directx_devices.device);
 
     let lparam = LPARAM(directx_devices as *const _ as _);
     unsafe {

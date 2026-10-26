@@ -9,8 +9,9 @@ use windows::Win32::{
             D3D_FEATURE_LEVEL_11_1,
         },
         Direct3D11::{
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG, D3D11_SDK_VERSION,
-            D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_DEBUG,
+            D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
+            ID3D11Device, ID3D11DeviceContext,
         },
         Dxgi::{
             CreateDXGIFactory2, DXGI_CREATE_FACTORY_DEBUG, DXGI_CREATE_FACTORY_FLAGS,
@@ -148,10 +149,14 @@ fn get_device(
     debug_layer_available: bool,
 ) -> Result<ID3D11Device> {
     let mut device: Option<ID3D11Device> = None;
+    // VIDEO_SUPPORT lets producers that share this device (hardware video decoders and the
+    // D3D11 video processor) obtain ID3D11VideoDevice / ID3D11VideoContext from it.
     let device_flags = if debug_layer_available {
-        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_DEBUG
-    } else {
         D3D11_CREATE_DEVICE_BGRA_SUPPORT
+            | D3D11_CREATE_DEVICE_VIDEO_SUPPORT
+            | D3D11_CREATE_DEVICE_DEBUG
+    } else {
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT
     };
     unsafe {
         D3D11CreateDevice(
