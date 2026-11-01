@@ -1074,11 +1074,11 @@ impl EntityInputHandler for EditableTextState {
         &mut self,
         range_utf16: Range<usize>,
         bounds: Bounds<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.storage.utf_range_16to8(&range_utf16);
-        let line_height = window.line_height();
+        let line_height = self.layout_data.line_height;
 
         let document = self.current_document().ok()?;
         let document_origin = bounds.origin + self.layout_data.document_offset
@@ -1108,12 +1108,12 @@ impl EntityInputHandler for EditableTextState {
     fn character_index_for_point(
         &mut self,
         point: Point<Pixels>,
-        window: &mut Window,
+        _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         let point =
             point + self.layout_data.scroll_bounds.origin - self.layout_data.document_offset;
-        let index = self.index_for_pixel_point(point, window.line_height());
+        let index = self.index_for_pixel_point(point, self.layout_data.line_height);
         Some(self.storage.utf_offset_8to16(index))
     }
 }
