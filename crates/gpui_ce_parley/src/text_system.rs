@@ -139,6 +139,8 @@ type ParagraphResultCache = BoundedCache<ParagraphResultCacheKey, ParleyLayoutRe
 struct SourceMap {
     source_to_backend: Vec<usize>,
     backend_to_source: Vec<usize>,
+    /// Backend byte ranges occupied by synthetic bidi controls.
+    synthetic_ranges: Vec<Range<usize>>,
 }
 
 impl SourceMap {
@@ -154,6 +156,20 @@ impl SourceMap {
             .get(source_idx)
             .copied()
             .unwrap_or_else(|| *self.source_to_backend.last().unwrap_or(&0))
+    }
+
+    /// Returns whether `caret` attaches to a synthetic bidi control rather than real text.
+    ///
+    /// Visual navigation skips these stops because the controls are zero-width and have no
+    /// source counterpart. A caret at a soft-wrap boundary shares its source index with its
+    /// affinity partner but attaches to real text, so it must not be skipped.
+    fn is_synthetic_caret(&self, caret: CaretPosition) -> bool {
+        self.synthetic_ranges
+            .iter()
+            .any(|range| match caret.affinity {
+                CaretAffinity::Downstream => range.start <= caret.index && caret.index < range.end,
+                CaretAffinity::Upstream => range.start < caret.index && caret.index <= range.end,
+            })
     }
 
     fn source_caret(&self, caret: CaretPosition) -> CaretPosition {
@@ -282,7 +298,7 @@ impl PlatformTextLayout for SourceMappedLayout {
             backend_caret = self.inner.adjacent_visual_caret(backend_caret, direction)?;
             let source_caret = self.map.source_caret(backend_caret);
 
-            if source_caret.index != source_start {
+            if source_caret.index != source_start || !self.map.is_synthetic_caret(backend_caret) {
                 return Some(source_caret);
             }
         }
@@ -489,13 +505,17 @@ fn prepare_bidi_text(
     let mut prepared = String::new();
     let mut backend_to_source = vec![0];
     let mut source_to_backend = vec![0; text.len() + 1];
+    let mut synthetic_ranges = Vec::new();
 
     let append_synthetic = |character: char,
                             source_idx: usize,
                             prepared: &mut String,
-                            backend_to_source: &mut Vec<usize>| {
+                            backend_to_source: &mut Vec<usize>,
+                            synthetic_ranges: &mut Vec<Range<usize>>| {
+        let start = prepared.len();
         prepared.push(character);
         backend_to_source.extend(std::iter::repeat_n(source_idx, character.len_utf8()));
+        synthetic_ranges.push(start..prepared.len());
     };
 
     if let Some(root_direction) = root_direction {
@@ -503,7 +523,13 @@ fn prepare_bidi_text(
             ResolvedDirection::LeftToRight => '\u{200e}',
             ResolvedDirection::RightToLeft => '\u{200f}',
         };
-        append_synthetic(marker, 0, &mut prepared, &mut backend_to_source);
+        append_synthetic(
+            marker,
+            0,
+            &mut prepared,
+            &mut backend_to_source,
+            &mut synthetic_ranges,
+        );
     }
 
     for (source_idx, character) in text
@@ -514,13 +540,25 @@ fn prepare_bidi_text(
             scope.start < scope.end && scope.end == source_idx && scope.end < text.len()
         }) {
             for control in &scope.close {
-                append_synthetic(*control, source_idx, &mut prepared, &mut backend_to_source);
+                append_synthetic(
+                    *control,
+                    source_idx,
+                    &mut prepared,
+                    &mut backend_to_source,
+                    &mut synthetic_ranges,
+                );
             }
         }
 
         for scope in controls.iter().filter(|scope| scope.start == source_idx) {
             for control in &scope.open {
-                append_synthetic(*control, source_idx, &mut prepared, &mut backend_to_source);
+                append_synthetic(
+                    *control,
+                    source_idx,
+                    &mut prepared,
+                    &mut backend_to_source,
+                    &mut synthetic_ranges,
+                );
             }
         }
 
@@ -535,7 +573,13 @@ fn prepare_bidi_text(
             .filter(|scope| scope.start == source_idx && scope.end == source_idx)
         {
             for control in &scope.close {
-                append_synthetic(*control, source_idx, &mut prepared, &mut backend_to_source);
+                append_synthetic(
+                    *control,
+                    source_idx,
+                    &mut prepared,
+                    &mut backend_to_source,
+                    &mut synthetic_ranges,
+                );
             }
         }
 
@@ -553,13 +597,20 @@ fn prepare_bidi_text(
         .filter(|scope| scope.end == text.len())
     {
         for control in &scope.close {
-            append_synthetic(*control, text.len(), &mut prepared, &mut backend_to_source);
+            append_synthetic(
+                *control,
+                text.len(),
+                &mut prepared,
+                &mut backend_to_source,
+                &mut synthetic_ranges,
+            );
         }
     }
 
     let map = SourceMap {
         source_to_backend,
         backend_to_source,
+        synthetic_ranges,
     };
     let (runs, run_sources) = remap_runs(&prepared, &map, runs, text.len());
     let text_styles = text_styles
@@ -2507,6 +2558,75 @@ mod tests {
             let gpui_affinity: CaretAffinity = parley_affinity.into_affinity();
             assert_eq!(gpui_affinity, affinity);
         }
+    }
+
+    #[test]
+    fn soft_wrap_boundary_splits_caret_affinity_across_rows() {
+        let system = test_system();
+        let line_height = px(24.);
+        let prefix = "wwwwwwww-";
+        let text = format!("{prefix}(");
+
+        // Measure the prefix so the `(` cannot fit on the first row and soft-wraps.
+        let measured = layout_line(
+            &system,
+            prefix,
+            px(18.),
+            &[text_run(prefix, IBM_PLEX.family)],
+        );
+        // Fit the hyphen but not the following paren, so the break lands before `(`.
+        let wrap_width = measured.visual_lines[0].advance_width + px(3.);
+        let layout = layout_wrapped(
+            &system,
+            &text,
+            px(18.),
+            &[text_run(&text, IBM_PLEX.family)],
+            wrap_width,
+            None,
+        );
+
+        assert_eq!(layout.visual_lines.len(), 2, "text must soft-wrap once");
+        let wrap = layout.visual_lines[1].text_range.start;
+        assert_eq!(&text[wrap..], "(", "the paren must start the second row");
+
+        let downstream = CaretPosition {
+            index: wrap,
+            affinity: CaretAffinity::Downstream,
+        };
+        let upstream = CaretPosition {
+            index: wrap,
+            affinity: CaretAffinity::Upstream,
+        };
+        let after_paren = CaretPosition {
+            index: wrap + 1,
+            affinity: CaretAffinity::Upstream,
+        };
+        let bounds = |caret| {
+            layout
+                .platform_layout
+                .caret_bounds(caret, line_height)
+                .expect("caret must have geometry")
+        };
+
+        assert_eq!(bounds(downstream).origin.y, line_height);
+        assert_eq!(bounds(upstream).origin.y, Pixels::ZERO);
+        assert_eq!(bounds(downstream).origin.x, Pixels::ZERO);
+        assert!(bounds(upstream).origin.x > Pixels::ZERO);
+
+        // One Left lands before `(` on the second row; the next Left moves to the end of the
+        // previous row. Both carets share the wrap index and differ only in affinity.
+        assert_eq!(
+            layout
+                .platform_layout
+                .adjacent_visual_caret(after_paren, VisualDirection::Left),
+            Some(downstream)
+        );
+        assert_eq!(
+            layout
+                .platform_layout
+                .adjacent_visual_caret(downstream, VisualDirection::Left),
+            Some(upstream)
+        );
     }
 
     fn test_system() -> Arc<ParleyTextSystem> {
